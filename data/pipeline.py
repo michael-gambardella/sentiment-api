@@ -1,3 +1,4 @@
+"""ETL pipeline: loads the IMDB dataset, cleans raw text, tokenizes with DistilBERT, and returns DataLoaders."""
 import re
 import logging
 from typing import Tuple

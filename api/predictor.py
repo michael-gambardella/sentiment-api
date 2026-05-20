@@ -1,3 +1,4 @@
+"""Inference engine: loads the fine-tuned model once and serves sentiment predictions."""
 import logging
 from pathlib import Path
 

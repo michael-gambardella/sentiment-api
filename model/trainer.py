@@ -1,3 +1,4 @@
+"""Fine-tuning loop for DistilBERT on the IMDB sentiment dataset with checkpointing."""
 import logging
 from pathlib import Path
 

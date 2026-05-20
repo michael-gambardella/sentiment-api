@@ -1,3 +1,4 @@
+"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
 import logging
 from contextlib import asynccontextmanager
 

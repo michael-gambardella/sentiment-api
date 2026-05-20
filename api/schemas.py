@@ -1,3 +1,4 @@
+"""Pydantic v2 request and response schemas for the sentiment classification API."""
 from pydantic import BaseModel, Field
 
 

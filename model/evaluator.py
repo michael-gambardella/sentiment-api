@@ -1,3 +1,4 @@
+"""Evaluation utilities: accuracy, F1 score, and confusion matrix for the fine-tuned classifier."""
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -140,4 +141,3 @@ if __name__ == "__main__":
         format="%(asctime)s | %(levelname)s | %(message)s",
     )
     evaluate()
-```
