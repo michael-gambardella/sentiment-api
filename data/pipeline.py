@@ -7,11 +7,13 @@ from datasets import load_dataset, DatasetDict
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "distilbert-base-uncased"
-MAX_LENGTH = 256  # covers ~95% of IMDB reviews; 512 halves throughput for minimal gain
-BATCH_SIZE = 16
+MODEL_NAME = settings.model_name
+MAX_LENGTH = settings.max_input_length
+BATCH_SIZE = settings.batch_size
 
 
 def clean_text(text: str) -> str:

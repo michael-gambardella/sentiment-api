@@ -6,11 +6,12 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from config import settings
 from data.pipeline import MODEL_NAME, MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
-ARTIFACTS_DIR = Path(__file__).parent.parent / "model" / "artifacts" / "final"
+ARTIFACTS_DIR = settings.artifacts_dir
 LABELS = ["NEGATIVE", "POSITIVE"]
 
 

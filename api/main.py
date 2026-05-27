@@ -6,10 +6,11 @@ from fastapi import FastAPI, Request
 
 from api.predictor import Predictor, ARTIFACTS_DIR, LABELS
 from api.schemas import HealthResponse, MetricsResponse, PredictRequest, PredictResponse
+from config import settings
 from data.pipeline import MODEL_NAME, MAX_LENGTH
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
