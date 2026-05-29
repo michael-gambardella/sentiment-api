@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from api.errors import ModelNotLoadedError, PredictionError
 from config import settings
 from data.pipeline import MODEL_NAME, MAX_LENGTH
 
@@ -26,6 +27,11 @@ class Predictor:
         self.artifact_dir = artifact_dir
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        if not artifact_dir.exists():
+            raise ModelNotLoadedError(
+                f"Model artifacts not found at '{artifact_dir}'. Run 'make train' first."
+            )
+
         logger.info("Loading tokenizer from %s", MODEL_NAME)
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -44,27 +50,35 @@ class Predictor:
 
         Returns:
             Dict with 'label' (str) and 'confidence' (float) keys.
+
+        Raises:
+            PredictionError: If tokenisation or model inference fails unexpectedly.
         """
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=MAX_LENGTH,
-        )
+        try:
+            inputs = self.tokenizer(
+                text,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=MAX_LENGTH,
+            )
 
-        input_ids = inputs["input_ids"].to(self.device)
-        attention_mask = inputs["attention_mask"].to(self.device)
+            input_ids = inputs["input_ids"].to(self.device)
+            attention_mask = inputs["attention_mask"].to(self.device)
 
-        with torch.no_grad():  # no gradient graph needed during inference
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+            with torch.no_grad():  # no gradient graph needed during inference
+                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
 
-        # softmax converts raw logits to probabilities that sum to 1
-        probs = F.softmax(outputs.logits, dim=-1)
-        predicted_idx = probs.argmax(dim=-1).item()
-        confidence = probs[0, predicted_idx].item()
+            # softmax converts raw logits to probabilities that sum to 1
+            probs = F.softmax(outputs.logits, dim=-1)
+            predicted_idx = probs.argmax(dim=-1).item()
+            confidence = probs[0, predicted_idx].item()
 
-        return {
-            "label": LABELS[predicted_idx],
-            "confidence": round(confidence, 4),
-        }
+            return {
+                "label": LABELS[predicted_idx],
+                "confidence": round(confidence, 4),
+            }
+        except (ModelNotLoadedError, PredictionError):
+            raise
+        except Exception as exc:
+            raise PredictionError(f"Inference failed: {exc}") from exc

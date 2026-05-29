@@ -84,6 +84,26 @@ def test_predict_missing_text_field_rejected(client):
     assert response.status_code == 422
 
 
+# --- error response shape ---
+
+def test_validation_error_body_has_error_field(client):
+    """Our custom validation handler should return {error, message, detail}."""
+    response = client.post("/predict", json={"text": ""})
+    data = response.json()
+    assert "error" in data
+    assert data["error"] == "ValidationError"
+    assert "message" in data
+    assert "detail" in data
+
+
+def test_validation_error_detail_is_list(client):
+    """detail should expose the raw Pydantic error list for client debugging."""
+    response = client.post("/predict", json={})
+    data = response.json()
+    assert isinstance(data["detail"], list)
+    assert len(data["detail"]) > 0
+
+
 def test_predict_positive_sentiment(client):
     response = client.post("/predict", json={"text": "Absolutely loved this film. A masterpiece."})
     assert response.json()["label"] == "POSITIVE"
