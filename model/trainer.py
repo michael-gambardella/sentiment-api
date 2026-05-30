@@ -1,26 +1,26 @@
-"""Fine-tuning loop for DistilBERT on the IMDB sentiment dataset with checkpointing."""
-import logging
+﻿"""Fine-tuning loop for DistilBERT on the IMDB sentiment dataset with checkpointing."""
 from pathlib import Path
 
+import structlog
 import torch
 from torch.optim import AdamW
 from transformers import AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 
 from data.pipeline import build_dataloaders, MODEL_NAME
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(module=__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 NUM_LABELS = 2
 LEARNING_RATE = 2e-5   # standard fine-tuning LR from the BERT paper; higher risks catastrophic forgetting
 NUM_EPOCHS = 3
-WARMUP_RATIO = 0.1     # ramp LR from 0 → peak over the first 10% of steps
+WARMUP_RATIO = 0.1     # ramp LR from 0 â†’ peak over the first 10% of steps
 
 
 def get_device() -> torch.device:
     """Return GPU if available, otherwise CPU."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Using device: %s", device)
+    logger.info("Device selected", device=str(device))
     return device
 
 
@@ -30,7 +30,7 @@ def build_model(num_labels: int = NUM_LABELS) -> AutoModelForSequenceClassificat
     The transformer body starts from pre-trained weights; only the head
     is new and needs to learn from our data.
     """
-    logger.info("Loading pre-trained model: %s", MODEL_NAME)
+    logger.info("Loading pre-trained model", model_name=MODEL_NAME)
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME,
         num_labels=num_labels,
@@ -59,7 +59,7 @@ def run_epoch(
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["labels"].to(device)
 
-        # Forward pass — HuggingFace models return loss automatically when labels are passed
+        # Forward pass â€” HuggingFace models return loss automatically when labels are passed
         outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         loss = outputs.loss
 
@@ -73,8 +73,11 @@ def run_epoch(
 
         if step % 200 == 0:
             logger.info(
-                "Epoch %d | Step %d/%d | Running Avg Loss: %.4f",
-                epoch, step, len(train_loader), total_loss / step,
+                "Training step",
+                epoch=epoch,
+                step=step,
+                total_steps=len(train_loader),
+                avg_loss=round(total_loss / step, 4),
             )
 
     return total_loss / len(train_loader)
@@ -88,8 +91,8 @@ def train(
     """Fine-tune DistilBERT on IMDB and save checkpoints after each epoch.
 
     Artifacts are written to model/artifacts/:
-      checkpoint_epoch_1/, checkpoint_epoch_2/, checkpoint_epoch_3/  ← per-epoch snapshots
-      final/                                                          ← the model the API loads
+      checkpoint_epoch_1/, checkpoint_epoch_2/, checkpoint_epoch_3/  â† per-epoch snapshots
+      final/                                                          â† the model the API loads
 
     Args:
         num_epochs: Number of full passes over the training data.
@@ -111,28 +114,30 @@ def train(
     )
 
     logger.info(
-        "Starting training — epochs: %d | total steps: %d | warmup steps: %d",
-        num_epochs, total_steps, warmup_steps,
+        "Training started",
+        num_epochs=num_epochs,
+        total_steps=total_steps,
+        warmup_steps=warmup_steps,
+        learning_rate=learning_rate,
     )
 
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(1, num_epochs + 1):
         avg_loss = run_epoch(model, train_loader, optimizer, scheduler, device, epoch)
-        logger.info("Epoch %d complete | Avg Loss: %.4f", epoch, avg_loss)
+        logger.info("Epoch complete", epoch=epoch, avg_loss=round(avg_loss, 4))
 
         checkpoint_path = ARTIFACTS_DIR / f"checkpoint_epoch_{epoch}"
         model.save_pretrained(checkpoint_path)
-        logger.info("Checkpoint saved → %s", checkpoint_path)
+        logger.info("Checkpoint saved", path=str(checkpoint_path))
 
     final_path = ARTIFACTS_DIR / "final"
     model.save_pretrained(final_path)
-    logger.info("Final model saved → %s", final_path)
+    logger.info("Final model saved", path=str(final_path))
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
+    from config import settings
+    from logging_config import configure_logging
+    configure_logging(settings.environment, settings.log_level)
     train()

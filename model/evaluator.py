@@ -1,10 +1,10 @@
-"""Evaluation utilities: accuracy, F1 score, and confusion matrix for the fine-tuned classifier."""
-import logging
+﻿"""Evaluation utilities: accuracy, F1 score, and confusion matrix for the fine-tuned classifier."""
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import structlog
 import torch
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from transformers import AutoModelForSequenceClassification
@@ -12,14 +12,14 @@ from transformers import AutoModelForSequenceClassification
 from data.pipeline import build_dataloaders
 from model.trainer import ARTIFACTS_DIR, get_device
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(module=__name__)
 
 LABELS = ["NEGATIVE", "POSITIVE"]
 
 
 def load_model(artifact_dir: Path = ARTIFACTS_DIR / "final") -> AutoModelForSequenceClassification:
     """Load the fine-tuned model from a saved artifact directory."""
-    logger.info("Loading model from %s", artifact_dir)
+    logger.info("Loading model", artifact_dir=str(artifact_dir))
     model = AutoModelForSequenceClassification.from_pretrained(artifact_dir)
     return model
 
@@ -34,7 +34,7 @@ def collect_predictions(
     Returns:
         A tuple of (predictions, ground_truth_labels) as plain Python lists.
     """
-    model.eval()  # disables dropout — makes predictions deterministic
+    model.eval()  # disables dropout â€” makes predictions deterministic
 
     all_preds: List[int] = []
     all_labels: List[int] = []
@@ -47,7 +47,7 @@ def collect_predictions(
 
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
 
-            # argmax over the last dim: [batch_size, num_labels] → [batch_size]
+            # argmax over the last dim: [batch_size, num_labels] â†’ [batch_size]
             preds = outputs.logits.argmax(dim=-1)
 
             # move to CPU and convert to list so sklearn can consume them
@@ -58,21 +58,10 @@ def collect_predictions(
 
 
 def compute_metrics(preds: List[int], labels: List[int]) -> Dict[str, float]:
-    """Compute accuracy and binary F1 score.
-
-    Args:
-        preds: Model predictions (0 or 1).
-        labels: Ground truth labels (0 or 1).
-
-    Returns:
-        Dict with 'accuracy' and 'f1' keys.
-    """
+    """Compute accuracy and binary F1 score."""
     accuracy = accuracy_score(labels, preds)
     f1 = f1_score(labels, preds, average="binary")
-
-    logger.info("Accuracy : %.4f", accuracy)
-    logger.info("F1 Score : %.4f", f1)
-
+    logger.info("Evaluation complete", accuracy=round(accuracy, 4), f1=round(f1, 4))
     return {"accuracy": accuracy, "f1": f1}
 
 
@@ -85,11 +74,6 @@ def plot_confusion_matrix(
 
     Rows = actual class, columns = predicted class.
     Diagonal = correct predictions. Off-diagonal = errors.
-
-    Args:
-        preds: Model predictions.
-        labels: Ground truth labels.
-        output_path: Where to save the PNG.
     """
     cm = confusion_matrix(labels, preds)
 
@@ -105,25 +89,18 @@ def plot_confusion_matrix(
     )
     ax.set_xlabel("Predicted")
     ax.set_ylabel("Actual")
-    ax.set_title("Confusion Matrix — IMDB Sentiment Classifier")
+    ax.set_title("Confusion Matrix â€” IMDB Sentiment Classifier")
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path)
     plt.close()
 
-    logger.info("Confusion matrix saved → %s", output_path)
+    logger.info("Confusion matrix saved", path=str(output_path))
 
 
 def evaluate(batch_size: int = 16) -> Dict[str, float]:
-    """Full evaluation pipeline: load model, run inference, log metrics, save confusion matrix.
-
-    Args:
-        batch_size: Examples per batch during inference.
-
-    Returns:
-        Dict with 'accuracy' and 'f1' keys.
-    """
+    """Full evaluation pipeline: load model, run inference, log metrics, save confusion matrix."""
     device = get_device()
     _, test_loader = build_dataloaders(batch_size=batch_size)
     model = load_model().to(device)
@@ -136,8 +113,7 @@ def evaluate(batch_size: int = 16) -> Dict[str, float]:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
+    from config import settings
+    from logging_config import configure_logging
+    configure_logging(settings.environment, settings.log_level)
     evaluate()

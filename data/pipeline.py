@@ -1,15 +1,15 @@
-"""ETL pipeline: loads the IMDB dataset, cleans raw text, tokenizes with DistilBERT, and returns DataLoaders."""
+﻿"""ETL pipeline: loads the IMDB dataset, cleans raw text, tokenizes with DistilBERT, and returns DataLoaders."""
 import re
-import logging
 from typing import Tuple
 
+import structlog
 from datasets import load_dataset, DatasetDict
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
 from config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(module=__name__)
 
 MODEL_NAME = settings.model_name
 MAX_LENGTH = settings.max_input_length
@@ -25,9 +25,9 @@ def clean_text(text: str) -> str:
 
 def load_raw_dataset() -> DatasetDict:
     """Download and cache the IMDB dataset from Hugging Face Hub."""
-    logger.info("Loading IMDB dataset from Hugging Face Hub...")
+    logger.info("Loading IMDB dataset")
     dataset = load_dataset("imdb")
-    logger.info("Train: %d samples | Test: %d samples", len(dataset["train"]), len(dataset["test"]))
+    logger.info("Dataset loaded", train_samples=len(dataset["train"]), test_samples=len(dataset["test"]))
     return dataset
 
 
@@ -48,14 +48,14 @@ def tokenize_dataset(dataset: DatasetDict, tokenizer: AutoTokenizer) -> DatasetD
             max_length=MAX_LENGTH,
         )
 
-    logger.info("Tokenizing dataset (this may take a minute)...")
+    logger.info("Tokenizing dataset")
     tokenized = dataset.map(tokenize_batch, batched=True)
 
     # Rename so PyTorch cross-entropy loss finds the target column automatically
     tokenized = tokenized.rename_column("label", "labels")
     tokenized.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
-    logger.info("Tokenization complete.")
+    logger.info("Tokenization complete")
     return tokenized
 
 
@@ -83,9 +83,5 @@ def build_dataloaders(batch_size: int = BATCH_SIZE) -> Tuple[DataLoader, DataLoa
         shuffle=False,  # evaluation order doesn't matter; keep it deterministic
     )
 
-    logger.info(
-        "DataLoaders ready — Train batches: %d | Test batches: %d",
-        len(train_loader),
-        len(test_loader),
-    )
+    logger.info("DataLoaders ready", train_batches=len(train_loader), test_batches=len(test_loader))
     return train_loader, test_loader

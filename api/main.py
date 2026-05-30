@@ -1,7 +1,7 @@
-"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
-import logging
+﻿"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 
@@ -15,32 +15,29 @@ from api.errors import (
     unhandled_error_handler,
     validation_error_handler,
 )
+from api.middleware import CorrelationIdMiddleware
 from api.predictor import Predictor, ARTIFACTS_DIR, LABELS
 from api.schemas import HealthResponse, MetricsResponse, PredictRequest, PredictResponse
 from config import settings
 from data.pipeline import MODEL_NAME, MAX_LENGTH
+from logging_config import configure_logging
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
+configure_logging(settings.environment, settings.log_level)
+logger = structlog.get_logger(module=__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load the model once at startup; release resources on shutdown."""
-    logger.info("Starting up — loading predictor...")
+    logger.info("Starting up", environment=settings.environment, artifacts_dir=str(settings.artifacts_dir))
     try:
         app.state.predictor = Predictor()
-        logger.info("Predictor loaded and ready.")
+        logger.info("Predictor ready")
     except ModelNotLoadedError as exc:
-        # Start in a degraded state so /health can report model_loaded=false
-        # rather than refusing connections entirely.
-        logger.error("Predictor failed to load: %s", exc)
+        logger.error("Predictor failed to load", error=str(exc))
         app.state.predictor = None
     yield
-    logger.info("Shutting down.")
+    logger.info("Shutting down")
 
 
 app = FastAPI(
@@ -49,6 +46,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(CorrelationIdMiddleware)
 
 app.add_exception_handler(ModelNotLoadedError, model_not_loaded_handler)
 app.add_exception_handler(PredictionError, prediction_error_handler)
@@ -66,7 +65,7 @@ async def predict(request: Request, body: PredictRequest) -> PredictResponse:
     predictor: Predictor | None = request.app.state.predictor
     if predictor is None:
         raise ModelNotLoadedError(
-            "Model is not loaded. Artifacts may be missing — run 'make train' first."
+            "Model is not loaded. Artifacts may be missing â€” run 'make train' first."
         )
     result = predictor.predict(body.text)
     return PredictResponse(label=result["label"], confidence=result["confidence"])

@@ -1,7 +1,7 @@
-"""Inference engine: loads the fine-tuned model once and serves sentiment predictions."""
-import logging
+﻿"""Inference engine: loads the fine-tuned model once and serves sentiment predictions."""
 from pathlib import Path
 
+import structlog
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -10,7 +10,7 @@ from api.errors import ModelNotLoadedError, PredictionError
 from config import settings
 from data.pipeline import MODEL_NAME, MAX_LENGTH
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(module=__name__)
 
 ARTIFACTS_DIR = settings.artifacts_dir
 LABELS = ["NEGATIVE", "POSITIVE"]
@@ -32,15 +32,15 @@ class Predictor:
                 f"Model artifacts not found at '{artifact_dir}'. Run 'make train' first."
             )
 
-        logger.info("Loading tokenizer from %s", MODEL_NAME)
+        logger.info("Loading tokenizer", model_name=MODEL_NAME)
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-        logger.info("Loading model from %s", artifact_dir)
+        logger.info("Loading model", artifact_dir=str(artifact_dir))
         self.model = AutoModelForSequenceClassification.from_pretrained(artifact_dir)
         self.model.to(self.device)
         self.model.eval()  # disable dropout permanently for inference
 
-        logger.info("Predictor ready on device: %s", self.device)
+        logger.info("Predictor ready", device=str(self.device))
 
     def predict(self, text: str) -> dict:
         """Run inference on a single text input.

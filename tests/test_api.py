@@ -104,6 +104,29 @@ def test_validation_error_detail_is_list(client):
     assert len(data["detail"]) > 0
 
 
+# --- correlation IDs ---
+
+def test_response_includes_correlation_id_header(client):
+    """Every response should carry an X-Correlation-ID header."""
+    response = client.get("/health")
+    assert "x-correlation-id" in response.headers
+
+
+def test_client_supplied_correlation_id_is_echoed(client):
+    """A caller-supplied X-Correlation-ID must be preserved and returned unchanged."""
+    supplied_id = "test-trace-abc-123"
+    response = client.get("/health", headers={"X-Correlation-ID": supplied_id})
+    assert response.headers["x-correlation-id"] == supplied_id
+
+
+def test_generated_correlation_id_is_uuid(client):
+    """When no ID is supplied, the generated ID should be a valid UUID4 string."""
+    import uuid
+    response = client.get("/health")
+    correlation_id = response.headers["x-correlation-id"]
+    uuid.UUID(correlation_id)  # raises ValueError if not a valid UUID
+
+
 def test_predict_positive_sentiment(client):
     response = client.post("/predict", json={"text": "Absolutely loved this film. A masterpiece."})
     assert response.json()["label"] == "POSITIVE"

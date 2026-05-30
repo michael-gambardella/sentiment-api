@@ -1,18 +1,18 @@
-"""Custom exception classes and FastAPI exception handlers.
+﻿"""Custom exception classes and FastAPI exception handlers.
 
 All handlers return a consistent JSON body:
     {"error": "<ExceptionClassName>", "message": "<human-readable>", "detail": <optional>}
 
 Registering handlers here keeps api/main.py free of error-handling logic.
 """
-import logging
 from typing import Any
 
+import structlog
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(module=__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ def _body(error: str, message: str, detail: Any = None) -> dict:
 # ---------------------------------------------------------------------------
 
 async def model_not_loaded_handler(request: Request, exc: ModelNotLoadedError) -> JSONResponse:
-    logger.error("ModelNotLoadedError: %s", exc)
+    logger.error("Model not loaded", error=str(exc))
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=_body("ModelNotLoadedError", str(exc)),
@@ -55,7 +55,7 @@ async def model_not_loaded_handler(request: Request, exc: ModelNotLoadedError) -
 
 
 async def prediction_error_handler(request: Request, exc: PredictionError) -> JSONResponse:
-    logger.error("PredictionError on %s: %s", request.url.path, exc, exc_info=True)
+    logger.error("Prediction error", path=str(request.url.path), exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=_body("PredictionError", str(exc)),
@@ -73,7 +73,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     """Replace FastAPI's verbose Pydantic error format with a concise, consistent shape."""
     errors = exc.errors()
     first = errors[0] if errors else {}
-    field = " → ".join(str(loc) for loc in first.get("loc", []))
+    field = " â†’ ".join(str(loc) for loc in first.get("loc", []))
     message = first.get("msg", "Validation error")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -87,10 +87,9 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.error(
-        "Unhandled exception on %s %s: %s",
-        request.method,
-        request.url.path,
-        exc,
+        "Unhandled exception",
+        method=request.method,
+        path=str(request.url.path),
         exc_info=True,
     )
     return JSONResponse(
