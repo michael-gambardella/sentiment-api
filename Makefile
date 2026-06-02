@@ -1,4 +1,5 @@
-.PHONY: install train evaluate test serve clean
+.PHONY: install train evaluate test serve clean \
+        docker-build docker-up docker-down docker-logs
 
 install:
 	pip install -r requirements.txt
@@ -18,3 +19,17 @@ serve:
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+
+docker-build:
+	docker build -t sentiment-api:latest .
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f api

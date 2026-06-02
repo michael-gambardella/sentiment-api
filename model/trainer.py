@@ -4,7 +4,7 @@ from pathlib import Path
 import structlog
 import torch
 from torch.optim import AdamW
-from transformers import AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
 
 from data.pipeline import build_dataloaders, MODEL_NAME
 
@@ -102,6 +102,7 @@ def train(
     device = get_device()
     train_loader, _ = build_dataloaders(batch_size=batch_size)
     model = build_model().to(device)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
@@ -129,10 +130,12 @@ def train(
 
         checkpoint_path = ARTIFACTS_DIR / f"checkpoint_epoch_{epoch}"
         model.save_pretrained(checkpoint_path)
+        tokenizer.save_pretrained(checkpoint_path)
         logger.info("Checkpoint saved", path=str(checkpoint_path))
 
     final_path = ARTIFACTS_DIR / "final"
     model.save_pretrained(final_path)
+    tokenizer.save_pretrained(final_path)
     logger.info("Final model saved", path=str(final_path))
 
 

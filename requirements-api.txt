@@ -1,0 +1,14 @@
+# Inference-only runtime dependencies for the Docker image.
+# Excludes training (datasets, scikit-learn), evaluation, and notebook packages.
+# Use requirements.txt for a full local development environment.
+
+# ML inference
+torch>=2.2.0
+transformers>=4.40.0
+
+# API
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+structlog>=24.1.0

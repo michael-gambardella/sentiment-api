@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    image: sentiment-api:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Model artifacts live on the host; container gets read-only access.
+      # Run 'make train' on the host to regenerate after retraining.
+      - ./model/artifacts:/app/model/artifacts:ro
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      ARTIFACTS_DIR: /app/model/artifacts/final
+    restart: unless-stopped

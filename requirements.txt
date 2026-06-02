@@ -5,6 +5,7 @@ datasets>=2.19.0
 scikit-learn>=1.4.0
 
 # API
+structlog>=24.0.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.7.0

@@ -1,0 +1,29 @@
+# Version control
+.git/
+.gitignore
+
+# Local virtual environment — dependencies are installed inside the image
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Secrets — never bake into an image
+.env
+
+# Training and evaluation artifacts — mounted as a volume at runtime
+model/artifacts/
+
+# Dev-only tooling not needed in the API image
+notebooks/
+tests/
+requirements.txt
+
+# Editor and OS files
+.vscode/
+*.log
+server.log
+server_err.log

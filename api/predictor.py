@@ -8,7 +8,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from api.errors import ModelNotLoadedError, PredictionError
 from config import settings
-from data.pipeline import MODEL_NAME, MAX_LENGTH
+from data.pipeline import MAX_LENGTH
 
 logger = structlog.get_logger(module=__name__)
 
@@ -32,8 +32,8 @@ class Predictor:
                 f"Model artifacts not found at '{artifact_dir}'. Run 'make train' first."
             )
 
-        logger.info("Loading tokenizer", model_name=MODEL_NAME)
-        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        logger.info("Loading tokenizer", artifact_dir=str(artifact_dir))
+        self.tokenizer = AutoTokenizer.from_pretrained(artifact_dir)
 
         logger.info("Loading model", artifact_dir=str(artifact_dir))
         self.model = AutoModelForSequenceClassification.from_pretrained(artifact_dir)
