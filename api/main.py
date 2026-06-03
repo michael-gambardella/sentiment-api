@@ -19,7 +19,6 @@ from api.middleware import CorrelationIdMiddleware
 from api.predictor import Predictor, ARTIFACTS_DIR, LABELS
 from api.schemas import HealthResponse, MetricsResponse, PredictRequest, PredictResponse
 from config import settings
-from data.pipeline import MODEL_NAME, MAX_LENGTH
 from logging_config import configure_logging
 
 configure_logging(settings.environment, settings.log_level)
@@ -82,8 +81,8 @@ async def health(request: Request) -> HealthResponse:
 async def metrics() -> MetricsResponse:
     """Return metadata about the loaded model."""
     return MetricsResponse(
-        model_name=MODEL_NAME,
+        model_name=settings.model_name,
         artifact_path=str(ARTIFACTS_DIR),
-        max_input_length=MAX_LENGTH,
+        max_input_length=settings.max_input_length,
         labels=LABELS,
     )

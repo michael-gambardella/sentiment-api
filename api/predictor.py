@@ -8,11 +8,11 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from api.errors import ModelNotLoadedError, PredictionError
 from config import settings
-from data.pipeline import MAX_LENGTH
 
 logger = structlog.get_logger(module=__name__)
 
 ARTIFACTS_DIR = settings.artifacts_dir
+MAX_LENGTH = settings.max_input_length
 LABELS = ["NEGATIVE", "POSITIVE"]
 
 
