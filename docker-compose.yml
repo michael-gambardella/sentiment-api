@@ -12,4 +12,6 @@ services:
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       ARTIFACTS_DIR: /app/model/artifacts/final
+      RATE_LIMIT: "60/minute"
+      # API_KEYS: "key-abc123,key-def456"  # comma-separated; empty = auth disabled
     restart: unless-stopped

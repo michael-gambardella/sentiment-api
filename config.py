@@ -5,7 +5,7 @@ All fields have sensible defaults so the app runs out-of-the-box with no setup.
 """
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +41,23 @@ class Settings(BaseSettings):
         default=16,
         description="DataLoader batch size used during training and evaluation",
     )
+    api_keys: frozenset[str] = Field(
+        default=frozenset(),
+        description="Valid API keys. Set API_KEYS env var as comma-separated values. Empty = auth disabled.",
+    )
+    rate_limit: str = Field(
+        default="60/minute",
+        description="Request rate limit for /predict (e.g. '60/minute', '10/second'). Uses slowapi syntax.",
+    )
+
+    @field_validator("api_keys", mode="before")
+    @classmethod
+    def _parse_api_keys(cls, v: object) -> frozenset[str]:
+        if isinstance(v, str):
+            return frozenset(k.strip() for k in v.split(",") if k.strip())
+        if isinstance(v, (set, frozenset, list)):
+            return frozenset(v)
+        return frozenset()
 
 
 settings = Settings()

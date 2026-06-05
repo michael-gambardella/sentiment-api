@@ -31,6 +31,10 @@ class InvalidInputError(Exception):
     """Input passes schema validation but violates a semantic constraint."""
 
 
+class AuthenticationError(Exception):
+    """Request is missing a valid API key."""
+
+
 # ---------------------------------------------------------------------------
 # Internal helper
 # ---------------------------------------------------------------------------
@@ -83,6 +87,27 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
             detail=errors,
         ),
     )
+
+
+async def authentication_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content=_body("AuthenticationError", str(exc)),
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
+
+
+async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handler for slowapi.errors.RateLimitExceeded."""
+    detail = getattr(exc, "detail", "rate limit exceeded")
+    response = JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=_body("RateLimitExceeded", f"Too many requests: {detail}. Please wait before retrying."),
+    )
+    exc_headers = getattr(exc, "headers", None)
+    if exc_headers:
+        response.headers.update(exc_headers)
+    return response
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:

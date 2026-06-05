@@ -1,17 +1,24 @@
-﻿"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
+"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
+from api.auth import verify_api_key
 from api.errors import (
+    AuthenticationError,
     InvalidInputError,
     ModelNotLoadedError,
     PredictionError,
+    authentication_error_handler,
     invalid_input_handler,
     model_not_loaded_handler,
     prediction_error_handler,
+    rate_limit_exceeded_handler,
     unhandled_error_handler,
     validation_error_handler,
 )
@@ -23,6 +30,8 @@ from logging_config import configure_logging
 
 configure_logging(settings.environment, settings.log_level)
 logger = structlog.get_logger(module=__name__)
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 @asynccontextmanager
@@ -46,8 +55,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+
 app.add_middleware(CorrelationIdMiddleware)
 
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(AuthenticationError, authentication_error_handler)
 app.add_exception_handler(ModelNotLoadedError, model_not_loaded_handler)
 app.add_exception_handler(PredictionError, prediction_error_handler)
 app.add_exception_handler(InvalidInputError, invalid_input_handler)
@@ -56,15 +69,21 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 
 
 @app.post("/predict", response_model=PredictResponse)
-async def predict(request: Request, body: PredictRequest) -> PredictResponse:
+@limiter.limit(lambda: settings.rate_limit)
+async def predict(
+    request: Request,
+    body: PredictRequest,
+    _: None = Depends(verify_api_key),
+) -> PredictResponse:
     """Classify the sentiment of the provided text.
 
     Returns a label (POSITIVE or NEGATIVE) and a confidence score between 0 and 1.
+    Requires a valid X-API-Key header when API_KEYS is configured.
     """
     predictor: Predictor | None = request.app.state.predictor
     if predictor is None:
         raise ModelNotLoadedError(
-            "Model is not loaded. Artifacts may be missing â€” run 'make train' first."
+            "Model is not loaded. Artifacts may be missing — run 'make train' first."
         )
     result = predictor.predict(body.text)
     return PredictResponse(label=result["label"], confidence=result["confidence"])
