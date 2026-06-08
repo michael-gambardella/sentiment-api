@@ -2,6 +2,8 @@ import pytest
 import torch
 from api.predictor import Predictor, LABELS
 
+pytestmark = pytest.mark.requires_model
+
 
 @pytest.fixture(scope="module")
 def predictor():

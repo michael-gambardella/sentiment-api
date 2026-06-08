@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 from api.main import app
 from api.predictor import LABELS
 
+pytestmark = pytest.mark.requires_model
+
 
 @pytest.fixture(scope="module")
 def client():

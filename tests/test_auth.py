@@ -22,24 +22,27 @@ def client():
 def auth_enabled():
     """Temporarily enable API key auth with a known test key, then restore."""
     original = settings.api_keys
-    settings.api_keys = frozenset({"test-key-abc"})
+    settings.api_keys = "test-key-abc"
     yield "test-key-abc"
     settings.api_keys = original
 
 
 # --- Auth disabled (default) ---
 
+@pytest.mark.requires_model
 def test_predict_no_key_auth_disabled(client):
     """With empty api_keys (default), /predict works without any key."""
     response = client.post("/predict", json={"text": "Great film!"})
     assert response.status_code == status.HTTP_200_OK
 
 
+@pytest.mark.requires_model
 def test_health_no_key_auth_disabled(client):
     """/health is never gated by auth."""
     assert client.get("/health").status_code == status.HTTP_200_OK
 
 
+@pytest.mark.requires_model
 def test_metrics_no_key_auth_disabled(client):
     """/metrics is never gated by auth."""
     assert client.get("/metrics").status_code == status.HTTP_200_OK
@@ -47,12 +50,14 @@ def test_metrics_no_key_auth_disabled(client):
 
 # --- Auth enabled ---
 
+@pytest.mark.requires_model
 def test_predict_missing_key_returns_401(client, auth_enabled):
     """No X-API-Key header returns 401 when auth is enabled."""
     response = client.post("/predict", json={"text": "Great film!"})
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+@pytest.mark.requires_model
 def test_predict_wrong_key_returns_401(client, auth_enabled):
     """An incorrect X-API-Key returns 401."""
     response = client.post(
@@ -63,6 +68,7 @@ def test_predict_wrong_key_returns_401(client, auth_enabled):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+@pytest.mark.requires_model
 def test_predict_valid_key_returns_200(client, auth_enabled):
     """A correct X-API-Key returns 200."""
     response = client.post(
@@ -73,6 +79,7 @@ def test_predict_valid_key_returns_200(client, auth_enabled):
     assert response.status_code == status.HTTP_200_OK
 
 
+@pytest.mark.requires_model
 def test_auth_error_body_has_error_field(client, auth_enabled):
     """401 response follows the standard {error, message} envelope."""
     data = client.post("/predict", json={"text": "Great film!"}).json()
@@ -80,13 +87,14 @@ def test_auth_error_body_has_error_field(client, auth_enabled):
     assert "message" in data
 
 
+@pytest.mark.requires_model
 def test_auth_error_body_has_no_unexpected_fields(client, auth_enabled):
     """401 response should only contain error and message (no detail)."""
     data = client.post("/predict", json={"text": "Great film!"}).json()
     assert set(data.keys()) == {"error", "message"}
 
 
-# --- Rate limit error shape (handler unit test) ---
+# --- Rate limit error shape (handler unit tests — no model needed) ---
 
 def test_rate_limit_handler_returns_429():
     """rate_limit_exceeded_handler produces a 429 JSONResponse."""

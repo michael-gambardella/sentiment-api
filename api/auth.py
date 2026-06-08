@@ -18,6 +18,7 @@ async def verify_api_key(
     """
     if not settings.api_keys:
         return
-    if x_api_key not in settings.api_keys:
+    valid_keys = frozenset(k.strip() for k in settings.api_keys.split(",") if k.strip())
+    if x_api_key not in valid_keys:
         logger.warning("Rejected request: invalid or missing API key")
         raise AuthenticationError("Invalid or missing API key.")
