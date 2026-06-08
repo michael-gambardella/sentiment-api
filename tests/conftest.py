@@ -13,6 +13,22 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Add skip markers at collection time so module-scoped fixtures are never set up.
+
+    A function-scoped autouse fixture can't intercept module-scoped fixture errors —
+    the module fixture (e.g. Predictor()) raises before the function fixture runs.
+    Marking at collection time tells pytest to skip the test entirely, including setup.
+    """
+    if not settings.artifacts_dir.exists():
+        skip_marker = pytest.mark.skip(
+            reason=f"Model artifacts not found at '{settings.artifacts_dir}' — skipping"
+        )
+        for item in items:
+            if item.get_closest_marker("requires_model"):
+                item.add_marker(skip_marker)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def disable_auth_by_default() -> Generator[None, None, None]:
     """Run the entire test session with auth disabled (api_keys = empty).
@@ -25,15 +41,3 @@ def disable_auth_by_default() -> Generator[None, None, None]:
     settings.api_keys = ""
     yield
     settings.api_keys = original
-
-
-@pytest.fixture(autouse=True)
-def skip_without_artifacts(request: pytest.FixtureRequest) -> None:
-    """Auto-skip any test marked requires_model when artifacts directory is absent.
-
-    Keeps CI green: tests that need the fine-tuned weights are skipped rather than
-    erroring, while all other tests (pipeline helpers, auth handler unit tests) run.
-    """
-    if request.node.get_closest_marker("requires_model"):
-        if not settings.artifacts_dir.exists():
-            pytest.skip(f"Model artifacts not found at '{settings.artifacts_dir}' — skipping")

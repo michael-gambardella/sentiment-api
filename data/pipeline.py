@@ -26,7 +26,7 @@ def clean_text(text: str) -> str:
 def load_raw_dataset() -> DatasetDict:
     """Download and cache the IMDB dataset from Hugging Face Hub."""
     logger.info("Loading IMDB dataset")
-    dataset = load_dataset("imdb")
+    dataset = load_dataset("stanfordnlp/imdb")
     logger.info("Dataset loaded", train_samples=len(dataset["train"]), test_samples=len(dataset["test"]))
     return dataset
 
