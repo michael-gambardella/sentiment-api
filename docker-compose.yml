@@ -15,3 +15,41 @@ services:
       RATE_LIMIT: "60/minute"
       # API_KEYS: "key-abc123,key-def456"  # comma-separated; empty = auth disabled
     restart: unless-stopped
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: [monitoring]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: [monitoring]
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:

@@ -13,3 +13,4 @@ pydantic>=2.7.0
 pydantic-settings>=2.3.0
 structlog>=24.1.0
 slowapi>=0.1.9
+prometheus-fastapi-instrumentator>=8.0.0

@@ -32,7 +32,7 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(description="Whether the model is ready to serve predictions.")
 
 
-class MetricsResponse(BaseModel):
+class ModelInfoResponse(BaseModel):
     model_name: str = Field(description="Base model identifier.")
     artifact_path: str = Field(description="Path the model was loaded from.")
     max_input_length: int = Field(description="Maximum token length accepted by the model.")

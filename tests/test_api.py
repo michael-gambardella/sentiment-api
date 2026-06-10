@@ -28,24 +28,48 @@ def test_health_model_loaded(client):
     assert data["model_loaded"] is True
 
 
-# --- /metrics ---
+# --- /info (model metadata) ---
 
-def test_metrics_returns_200(client):
-    response = client.get("/metrics")
+def test_info_returns_200(client):
+    response = client.get("/info")
     assert response.status_code == 200
 
 
-def test_metrics_response_shape(client):
-    data = client.get("/metrics").json()
+def test_info_response_shape(client):
+    data = client.get("/info").json()
     assert "model_name" in data
     assert "artifact_path" in data
     assert "max_input_length" in data
     assert "labels" in data
 
 
-def test_metrics_labels_match_expected(client):
-    data = client.get("/metrics").json()
+def test_info_labels_match_expected(client):
+    data = client.get("/info").json()
     assert data["labels"] == LABELS
+
+
+# --- /metrics (Prometheus exposition format) ---
+
+def test_prometheus_metrics_returns_200(client):
+    response = client.get("/metrics")
+    assert response.status_code == 200
+
+
+def test_prometheus_metrics_content_type(client):
+    response = client.get("/metrics")
+    assert "text/plain" in response.headers["content-type"]
+
+
+def test_prometheus_metrics_contains_http_counter(client):
+    response = client.get("/metrics")
+    assert "http_requests_total" in response.text
+
+
+def test_prometheus_metrics_contains_prediction_counter(client):
+    """After at least one prediction, the custom counter must appear in /metrics."""
+    client.post("/predict", json={"text": "Great film!"})
+    response = client.get("/metrics")
+    assert "sentiment_predictions_total" in response.text
 
 
 # --- /predict ---

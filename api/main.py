@@ -1,9 +1,10 @@
-"""FastAPI application exposing /predict, /health, and /metrics endpoints."""
+"""FastAPI application exposing /predict, /health, /info, and /metrics endpoints."""
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -22,9 +23,10 @@ from api.errors import (
     unhandled_error_handler,
     validation_error_handler,
 )
+from api.metrics import predictions_total
 from api.middleware import CorrelationIdMiddleware
 from api.predictor import Predictor, ARTIFACTS_DIR, LABELS
-from api.schemas import HealthResponse, MetricsResponse, PredictRequest, PredictResponse
+from api.schemas import HealthResponse, ModelInfoResponse, PredictRequest, PredictResponse
 from config import settings
 from logging_config import configure_logging
 
@@ -59,6 +61,12 @@ app.state.limiter = limiter
 
 app.add_middleware(CorrelationIdMiddleware)
 
+Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/metrics"],
+).instrument(app).expose(app)
+
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.add_exception_handler(AuthenticationError, authentication_error_handler)
 app.add_exception_handler(ModelNotLoadedError, model_not_loaded_handler)
@@ -86,6 +94,7 @@ async def predict(
             "Model is not loaded. Artifacts may be missing — run 'make train' first."
         )
     result = predictor.predict(body.text)
+    predictions_total.labels(label=result["label"]).inc()
     return PredictResponse(label=result["label"], confidence=result["confidence"])
 
 
@@ -96,10 +105,10 @@ async def health(request: Request) -> HealthResponse:
     return HealthResponse(status="ok", model_loaded=model_loaded)
 
 
-@app.get("/metrics", response_model=MetricsResponse)
-async def metrics() -> MetricsResponse:
-    """Return metadata about the loaded model."""
-    return MetricsResponse(
+@app.get("/info", response_model=ModelInfoResponse)
+async def info() -> ModelInfoResponse:
+    """Return static metadata about the loaded model (name, artifact path, labels)."""
+    return ModelInfoResponse(
         model_name=settings.model_name,
         artifact_path=str(ARTIFACTS_DIR),
         max_input_length=settings.max_input_length,

@@ -43,9 +43,9 @@ def test_health_no_key_auth_disabled(client):
 
 
 @pytest.mark.requires_model
-def test_metrics_no_key_auth_disabled(client):
-    """/metrics is never gated by auth."""
-    assert client.get("/metrics").status_code == status.HTTP_200_OK
+def test_info_no_key_auth_disabled(client):
+    """/info is never gated by auth."""
+    assert client.get("/info").status_code == status.HTTP_200_OK
 
 
 # --- Auth enabled ---

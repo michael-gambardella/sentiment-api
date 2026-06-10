@@ -12,6 +12,8 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from api.metrics import rate_limit_hits_total
+
 logger = structlog.get_logger(module=__name__)
 
 
@@ -99,6 +101,7 @@ async def authentication_error_handler(request: Request, exc: AuthenticationErro
 
 async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handler for slowapi.errors.RateLimitExceeded."""
+    rate_limit_hits_total.inc()
     detail = getattr(exc, "detail", "rate limit exceeded")
     response = JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
