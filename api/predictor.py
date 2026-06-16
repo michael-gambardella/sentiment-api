@@ -4,12 +4,14 @@ from pathlib import Path
 import structlog
 import torch
 import torch.nn.functional as F
+from opentelemetry import trace
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from api.errors import ModelNotLoadedError, PredictionError
 from config import settings
 
 logger = structlog.get_logger(module=__name__)
+tracer = trace.get_tracer(__name__)
 
 ARTIFACTS_DIR = settings.artifacts_dir
 MAX_LENGTH = settings.max_input_length
@@ -54,31 +56,36 @@ class Predictor:
         Raises:
             PredictionError: If tokenisation or model inference fails unexpectedly.
         """
-        try:
-            inputs = self.tokenizer(
-                text,
-                return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=MAX_LENGTH,
-            )
+        with tracer.start_as_current_span("model.inference") as span:
+            span.set_attribute("input.length", len(text))
+            try:
+                inputs = self.tokenizer(
+                    text,
+                    return_tensors="pt",
+                    padding="max_length",
+                    truncation=True,
+                    max_length=MAX_LENGTH,
+                )
 
-            input_ids = inputs["input_ids"].to(self.device)
-            attention_mask = inputs["attention_mask"].to(self.device)
+                input_ids = inputs["input_ids"].to(self.device)
+                attention_mask = inputs["attention_mask"].to(self.device)
 
-            with torch.no_grad():  # no gradient graph needed during inference
-                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+                with torch.no_grad():  # no gradient graph needed during inference
+                    outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
 
-            # softmax converts raw logits to probabilities that sum to 1
-            probs = F.softmax(outputs.logits, dim=-1)
-            predicted_idx = probs.argmax(dim=-1).item()
-            confidence = probs[0, predicted_idx].item()
+                # softmax converts raw logits to probabilities that sum to 1
+                probs = F.softmax(outputs.logits, dim=-1)
+                predicted_idx = probs.argmax(dim=-1).item()
+                confidence = probs[0, predicted_idx].item()
 
-            return {
-                "label": LABELS[predicted_idx],
-                "confidence": round(confidence, 4),
-            }
-        except (ModelNotLoadedError, PredictionError):
-            raise
-        except Exception as exc:
-            raise PredictionError(f"Inference failed: {exc}") from exc
+                result = {
+                    "label": LABELS[predicted_idx],
+                    "confidence": round(confidence, 4),
+                }
+                span.set_attribute("prediction.label", result["label"])
+                span.set_attribute("prediction.confidence", result["confidence"])
+                return result
+            except (ModelNotLoadedError, PredictionError):
+                raise
+            except Exception as exc:
+                raise PredictionError(f"Inference failed: {exc}") from exc

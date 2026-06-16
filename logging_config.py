@@ -7,6 +7,17 @@ before the event dict is even built, so debug calls in production cost nothing.
 import logging
 
 import structlog
+from opentelemetry import trace as otel_trace
+
+
+def _add_otel_trace_context(logger, method, event_dict):
+    """Inject trace_id and span_id into every log line when a span is active."""
+    span = otel_trace.get_current_span()
+    ctx = span.get_span_context()
+    if ctx.is_valid:
+        event_dict["trace_id"] = format(ctx.trace_id, "032x")
+        event_dict["span_id"] = format(ctx.span_id, "016x")
+    return event_dict
 
 
 def configure_logging(environment: str, log_level: str) -> None:
@@ -22,6 +33,7 @@ def configure_logging(environment: str, log_level: str) -> None:
 
     shared_processors = [
         structlog.contextvars.merge_contextvars,
+        _add_otel_trace_context,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),

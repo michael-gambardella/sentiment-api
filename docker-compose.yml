@@ -14,6 +14,8 @@ services:
       ARTIFACTS_DIR: /app/model/artifacts/final
       RATE_LIMIT: "60/minute"
       # API_KEYS: "key-abc123,key-def456"  # comma-separated; empty = auth disabled
+      OTEL_SERVICE_NAME: sentiment-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
     restart: unless-stopped
     networks:
       - monitoring
@@ -30,6 +32,19 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
     restart: unless-stopped
+    networks:
+      - monitoring
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    profiles: [monitoring]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
     networks:
       - monitoring
 
@@ -56,3 +71,4 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  tempo_data:

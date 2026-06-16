@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from api.auth import verify_api_key
+from api.tracing import configure_tracing
 from api.errors import (
     AuthenticationError,
     InvalidInputError,
@@ -66,6 +67,8 @@ Instrumentator(
     should_ignore_untemplated=True,
     excluded_handlers=["/metrics"],
 ).instrument(app).expose(app)
+
+configure_tracing(app)
 
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.add_exception_handler(AuthenticationError, authentication_error_handler)
