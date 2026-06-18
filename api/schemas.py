@@ -37,3 +37,15 @@ class ModelInfoResponse(BaseModel):
     artifact_path: str = Field(description="Path the model was loaded from.")
     max_input_length: int = Field(description="Maximum token length accepted by the model.")
     labels: list[str] = Field(description="Possible output labels in index order.")
+
+
+class JobResponse(BaseModel):
+    job_id: str = Field(description="Unique identifier for the queued prediction job.")
+    status: str = Field(description="Initial job status (always 'queued').")
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str = Field(description="Unique identifier for the prediction job.")
+    status: str = Field(description="Job status: queued | processing | completed | failed.")
+    result: PredictResponse | None = Field(default=None, description="Prediction result once completed.")
+    error: str | None = Field(default=None, description="Error detail if the job failed.")

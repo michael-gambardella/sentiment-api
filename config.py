@@ -49,6 +49,10 @@ class Settings(BaseSettings):
         default="60/minute",
         description="Request rate limit for /predict (e.g. '60/minute', '10/second'). Uses slowapi syntax.",
     )
+    redis_url: str = Field(
+        default="redis://redis:6379/0",
+        description="Redis connection URL used as the Celery broker and result backend.",
+    )
 
 
 settings = Settings()

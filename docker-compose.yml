@@ -16,6 +16,35 @@ services:
       # API_KEYS: "key-abc123,key-def456"  # comma-separated; empty = auth disabled
       OTEL_SERVICE_NAME: sentiment-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      REDIS_URL: redis://redis:6379/0
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  redis:
+    image: redis:7-alpine
+    profiles: [workers]
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  celery-worker:
+    build: .
+    image: sentiment-api:latest
+    profiles: [workers]
+    command: celery -A api.celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./model/artifacts:/app/model/artifacts:ro
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      ARTIFACTS_DIR: /app/model/artifacts/final
+      REDIS_URL: redis://redis:6379/0
+      PYTHONPATH: /app
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - monitoring
