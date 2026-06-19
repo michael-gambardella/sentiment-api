@@ -17,6 +17,8 @@ services:
       OTEL_SERVICE_NAME: sentiment-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
       REDIS_URL: redis://redis:6379/0
+      MODEL_VERSIONS_DIR: /app/model/artifacts
+      DEFAULT_MODEL_VERSION: final
     restart: unless-stopped
     networks:
       - monitoring
@@ -42,6 +44,8 @@ services:
       LOG_LEVEL: INFO
       ARTIFACTS_DIR: /app/model/artifacts/final
       REDIS_URL: redis://redis:6379/0
+      MODEL_VERSIONS_DIR: /app/model/artifacts
+      DEFAULT_MODEL_VERSION: final
       PYTHONPATH: /app
     depends_on:
       - redis

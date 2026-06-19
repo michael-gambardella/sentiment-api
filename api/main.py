@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from celery.result import AsyncResult
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
@@ -29,7 +29,7 @@ from api.errors import (
 )
 from api.metrics import predictions_total
 from api.middleware import CorrelationIdMiddleware
-from api.predictor import Predictor, ARTIFACTS_DIR, LABELS
+from api.predictor import LABELS, load_all_versions
 from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictRequest, PredictResponse
 from config import settings
 from logging_config import configure_logging
@@ -42,14 +42,20 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the model once at startup; release resources on shutdown."""
-    logger.info("Starting up", environment=settings.environment, artifacts_dir=str(settings.artifacts_dir))
-    try:
-        app.state.predictor = Predictor()
-        logger.info("Predictor ready")
-    except ModelNotLoadedError as exc:
-        logger.error("Predictor failed to load", error=str(exc))
-        app.state.predictor = None
+    """Load all model versions at startup; store in app.state.predictors dict."""
+    logger.info("Starting up", environment=settings.environment, versions_dir=str(settings.model_versions_dir))
+    predictors = load_all_versions(settings.model_versions_dir)
+    if not predictors:
+        logger.error("No model versions loaded", versions_dir=str(settings.model_versions_dir))
+    else:
+        logger.info("Model versions ready", versions=sorted(predictors), default=settings.default_model_version)
+        if settings.default_model_version not in predictors:
+            logger.warning(
+                "Default version not found in loaded versions",
+                default=settings.default_model_version,
+                available=sorted(predictors),
+            )
+    app.state.predictors = predictors
     yield
     logger.info("Shutting down")
 
@@ -82,23 +88,32 @@ app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 
+def _resolve_version(predictors: dict, x_model_version: str | None) -> tuple[str, object]:
+    """Return (version_name, predictor) or raise 404 if the version is unknown."""
+    version = x_model_version or settings.default_model_version
+    predictor = predictors.get(version)
+    if predictor is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model version '{version}' not found. Available: {sorted(predictors)}",
+        )
+    return version, predictor
+
+
 @app.post("/predict", response_model=PredictResponse)
 @limiter.limit(lambda: settings.rate_limit)
 async def predict(
     request: Request,
     body: PredictRequest,
     _: None = Depends(verify_api_key),
+    x_model_version: str | None = Header(default=None),
 ) -> PredictResponse:
     """Classify the sentiment of the provided text.
 
     Returns a label (POSITIVE or NEGATIVE) and a confidence score between 0 and 1.
-    Requires a valid X-API-Key header when API_KEYS is configured.
+    Pass X-Model-Version to target a specific checkpoint; omit to use the default.
     """
-    predictor: Predictor | None = request.app.state.predictor
-    if predictor is None:
-        raise ModelNotLoadedError(
-            "Model is not loaded. Artifacts may be missing — run 'make train' first."
-        )
+    _, predictor = _resolve_version(request.app.state.predictors, x_model_version)
     result = predictor.predict(body.text)
     predictions_total.labels(label=result["label"]).inc()
     return PredictResponse(label=result["label"], confidence=result["confidence"])
@@ -110,14 +125,17 @@ async def predict_async(
     request: Request,
     body: PredictRequest,
     _: None = Depends(verify_api_key),
+    x_model_version: str | None = Header(default=None),
 ) -> JobResponse:
     """Submit a prediction job and return a job ID immediately.
 
     Poll GET /predict/{job_id} to retrieve the result once processing completes.
+    Pass X-Model-Version to target a specific checkpoint; omit to use the default.
     Returns 503 if the worker queue (Redis) is unavailable.
     """
+    version, _ = _resolve_version(request.app.state.predictors, x_model_version)
     try:
-        task = predict_task.delay(body.text)
+        task = predict_task.delay(body.text, version)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Worker queue unavailable") from exc
     return JobResponse(job_id=task.id, status="queued")
@@ -155,17 +173,18 @@ async def get_job(
 
 @app.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
-    """Check whether the service is running and the model is loaded."""
-    model_loaded = request.app.state.predictor is not None
-    return HealthResponse(status="ok", model_loaded=model_loaded)
+    """Check whether the service is running and at least one model version is loaded."""
+    return HealthResponse(status="ok", model_loaded=bool(request.app.state.predictors))
 
 
 @app.get("/info", response_model=ModelInfoResponse)
-async def info() -> ModelInfoResponse:
-    """Return static metadata about the loaded model (name, artifact path, labels)."""
+async def info(request: Request) -> ModelInfoResponse:
+    """Return metadata about the loaded model versions."""
+    predictors: dict = request.app.state.predictors
     return ModelInfoResponse(
         model_name=settings.model_name,
-        artifact_path=str(ARTIFACTS_DIR),
+        available_versions=sorted(predictors),
+        default_version=settings.default_model_version,
         max_input_length=settings.max_input_length,
         labels=LABELS,
     )

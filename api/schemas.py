@@ -34,7 +34,8 @@ class HealthResponse(BaseModel):
 
 class ModelInfoResponse(BaseModel):
     model_name: str = Field(description="Base model identifier.")
-    artifact_path: str = Field(description="Path the model was loaded from.")
+    available_versions: list[str] = Field(description="Loaded model versions (pass via X-Model-Version header).")
+    default_version: str = Field(description="Version used when X-Model-Version header is absent.")
     max_input_length: int = Field(description="Maximum token length accepted by the model.")
     labels: list[str] = Field(description="Possible output labels in index order.")
 

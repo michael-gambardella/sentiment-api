@@ -25,7 +25,7 @@ class Predictor:
     then reused for every request. Loading per-request would add ~2s latency.
     """
 
-    def __init__(self, artifact_dir: Path = ARTIFACTS_DIR) -> None:
+    def __init__(self, artifact_dir: Path = ARTIFACTS_DIR, tokenizer_dir: Path | None = None) -> None:
         self.artifact_dir = artifact_dir
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,8 +34,11 @@ class Predictor:
                 f"Model artifacts not found at '{artifact_dir}'. Run 'make train' first."
             )
 
-        logger.info("Loading tokenizer", artifact_dir=str(artifact_dir))
-        self.tokenizer = AutoTokenizer.from_pretrained(artifact_dir)
+        # Tokenizer doesn't change between epochs; checkpoints may omit it.
+        # Fall back to a shared tokenizer dir (e.g. 'final') when not present.
+        tok_dir = tokenizer_dir if tokenizer_dir is not None else artifact_dir
+        logger.info("Loading tokenizer", artifact_dir=str(artifact_dir), tokenizer_dir=str(tok_dir))
+        self.tokenizer = AutoTokenizer.from_pretrained(tok_dir)
 
         logger.info("Loading model", artifact_dir=str(artifact_dir))
         self.model = AutoModelForSequenceClassification.from_pretrained(artifact_dir)
@@ -89,3 +92,34 @@ class Predictor:
                 raise
             except Exception as exc:
                 raise PredictionError(f"Inference failed: {exc}") from exc
+
+
+def load_all_versions(versions_dir: Path) -> dict[str, Predictor]:
+    """Scan versions_dir for subdirectories containing model checkpoints and load each.
+
+    Checkpoint dirs that lack tokenizer files share the tokenizer from the first
+    version that has one (tokenizer is identical across training epochs).
+    Directories that fail to load are skipped with a warning.
+    """
+    predictors: dict[str, Predictor] = {}
+    if not versions_dir.exists():
+        logger.warning("Model versions directory not found", path=str(versions_dir))
+        return predictors
+
+    candidates = sorted(p for p in versions_dir.iterdir() if p.is_dir() and (p / "config.json").exists())
+
+    # Locate a shared tokenizer (first dir that has tokenizer_config.json).
+    shared_tokenizer_dir = next(
+        (p for p in candidates if (p / "tokenizer_config.json").exists()), None
+    )
+
+    for path in candidates:
+        has_tokenizer = (path / "tokenizer_config.json").exists()
+        tok_dir = path if has_tokenizer else shared_tokenizer_dir
+        try:
+            logger.info("Loading model version", version=path.name, path=str(path))
+            predictors[path.name] = Predictor(artifact_dir=path, tokenizer_dir=tok_dir)
+        except Exception as exc:
+            logger.warning("Skipping model version", version=path.name, error=str(exc))
+
+    return predictors

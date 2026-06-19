@@ -53,6 +53,14 @@ class Settings(BaseSettings):
         default="redis://redis:6379/0",
         description="Redis connection URL used as the Celery broker and result backend.",
     )
+    model_versions_dir: Path = Field(
+        default=Path("model/artifacts"),
+        description="Directory whose subdirectories are treated as versioned model checkpoints.",
+    )
+    default_model_version: str = Field(
+        default="final",
+        description="Model version used when the X-Model-Version request header is absent.",
+    )
 
 
 settings = Settings()
