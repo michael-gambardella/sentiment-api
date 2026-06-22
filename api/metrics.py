@@ -21,3 +21,13 @@ rate_limit_hits_total = Counter(
     "sentiment_rate_limit_hits_total",
     "Total requests rejected because the rate limit was exceeded.",
 )
+
+cache_hits_total = Counter(
+    "sentiment_cache_hits_total",
+    "Prediction requests served from the Redis cache.",
+)
+
+cache_misses_total = Counter(
+    "sentiment_cache_misses_total",
+    "Prediction requests that required model inference (cache miss or cache unavailable).",
+)

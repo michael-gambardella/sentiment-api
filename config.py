@@ -61,6 +61,10 @@ class Settings(BaseSettings):
         default="final",
         description="Model version used when the X-Model-Version request header is absent.",
     )
+    cache_ttl: int = Field(
+        default=3600,
+        description="Seconds before a cached prediction expires in Redis. Set to 0 to disable caching.",
+    )
 
 
 settings = Settings()

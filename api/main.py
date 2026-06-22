@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import structlog
 from celery.result import AsyncResult
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from redis.asyncio import Redis as AsyncRedis
 from fastapi.exceptions import RequestValidationError
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter
@@ -11,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from api.auth import verify_api_key
+from api.cache import get_cached, set_cached
 from api.celery_app import celery_app
 from api.tasks import predict_task
 from api.tracing import configure_tracing
@@ -27,7 +29,7 @@ from api.errors import (
     unhandled_error_handler,
     validation_error_handler,
 )
-from api.metrics import predictions_total
+from api.metrics import cache_hits_total, cache_misses_total, predictions_total
 from api.middleware import CorrelationIdMiddleware
 from api.predictor import LABELS, load_all_versions
 from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictRequest, PredictResponse
@@ -42,7 +44,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load all model versions at startup; store in app.state.predictors dict."""
+    """Load all model versions and connect to Redis at startup."""
     logger.info("Starting up", environment=settings.environment, versions_dir=str(settings.model_versions_dir))
     predictors = load_all_versions(settings.model_versions_dir)
     if not predictors:
@@ -56,7 +58,22 @@ async def lifespan(app: FastAPI):
                 available=sorted(predictors),
             )
     app.state.predictors = predictors
+
+    redis: AsyncRedis | None = None
+    if settings.cache_ttl > 0:
+        try:
+            redis = AsyncRedis.from_url(settings.redis_url, decode_responses=True)
+            await redis.ping()
+            logger.info("Redis cache connected", ttl=settings.cache_ttl)
+        except Exception as exc:
+            logger.warning("Redis unavailable, caching disabled", error=str(exc))
+            redis = None
+    app.state.redis = redis
+
     yield
+
+    if redis is not None:
+        await redis.aclose()
     logger.info("Shutting down")
 
 
@@ -112,10 +129,24 @@ async def predict(
 
     Returns a label (POSITIVE or NEGATIVE) and a confidence score between 0 and 1.
     Pass X-Model-Version to target a specific checkpoint; omit to use the default.
+    Identical inputs are served from the Redis cache when available.
     """
-    _, predictor = _resolve_version(request.app.state.predictors, x_model_version)
+    version, predictor = _resolve_version(request.app.state.predictors, x_model_version)
+    redis: AsyncRedis | None = request.app.state.redis
+
+    if redis is not None:
+        cached = await get_cached(redis, body.text, version)
+        if cached is not None:
+            cache_hits_total.inc()
+            return PredictResponse(**cached)
+
+    cache_misses_total.inc()
     result = predictor.predict(body.text)
     predictions_total.labels(label=result["label"]).inc()
+
+    if redis is not None:
+        await set_cached(redis, body.text, version, result, settings.cache_ttl)
+
     return PredictResponse(label=result["label"], confidence=result["confidence"])
 
 

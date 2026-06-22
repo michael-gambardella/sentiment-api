@@ -19,13 +19,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       MODEL_VERSIONS_DIR: /app/model/artifacts
       DEFAULT_MODEL_VERSION: final
+      CACHE_TTL: "3600"
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - monitoring
 
   redis:
     image: redis:7-alpine
-    profiles: [workers]
     ports:
       - "6379:6379"
     restart: unless-stopped
