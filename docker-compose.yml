@@ -20,8 +20,10 @@ services:
       MODEL_VERSIONS_DIR: /app/model/artifacts
       DEFAULT_MODEL_VERSION: final
       CACHE_TTL: "3600"
+      DATABASE_URL: postgresql://sentiment:sentiment@postgres:5432/sentiment
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     networks:
       - monitoring
@@ -30,6 +32,20 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sentiment
+      POSTGRES_USER: sentiment
+      POSTGRES_PASSWORD: sentiment
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     networks:
       - monitoring
@@ -107,3 +123,4 @@ volumes:
   prometheus_data:
   grafana_data:
   tempo_data:
+  postgres_data:

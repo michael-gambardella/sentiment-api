@@ -65,6 +65,10 @@ class Settings(BaseSettings):
         default=3600,
         description="Seconds before a cached prediction expires in Redis. Set to 0 to disable caching.",
     )
+    database_url: str = Field(
+        default="",
+        description="PostgreSQL DSN for the prediction audit log. Empty = logging disabled.",
+    )
 
 
 settings = Settings()

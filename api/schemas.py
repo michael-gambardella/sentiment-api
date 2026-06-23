@@ -1,4 +1,6 @@
 """Pydantic v2 request and response schemas for the sentiment classification API."""
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -50,3 +52,16 @@ class JobStatusResponse(BaseModel):
     status: str = Field(description="Job status: queued | processing | completed | failed.")
     result: PredictResponse | None = Field(default=None, description="Prediction result once completed.")
     error: str | None = Field(default=None, description="Error detail if the job failed.")
+
+
+class PredictionLog(BaseModel):
+    id: int = Field(description="Auto-incrementing row identifier.")
+    created_at: datetime = Field(description="UTC timestamp when the prediction was made.")
+    input_hash: str = Field(description="SHA-256 of the input text.")
+    label: str = Field(description="Predicted sentiment label.")
+    confidence: float = Field(description="Model confidence score.")
+    model_version: str = Field(description="Model version that produced the prediction.")
+    latency_ms: float = Field(description="Inference time in milliseconds (0 for cache hits).")
+    served_from_cache: bool = Field(description="True when the result was served from the Redis cache.")
+    correlation_id: str | None = Field(description="X-Correlation-ID tied to the original request.")
+    client_ip: str | None = Field(description="Originating client IP address.")

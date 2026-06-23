@@ -1,9 +1,11 @@
 """FastAPI application exposing /predict, /health, /info, and /metrics endpoints."""
+import asyncio
+import time
 from contextlib import asynccontextmanager
 
 import structlog
 from celery.result import AsyncResult
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from redis.asyncio import Redis as AsyncRedis
 from fastapi.exceptions import RequestValidationError
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -14,6 +16,7 @@ from slowapi.util import get_remote_address
 from api.auth import verify_api_key
 from api.cache import get_cached, set_cached
 from api.celery_app import celery_app
+from api.db import close_db_pool, get_recent_predictions, init_db_pool, log_prediction
 from api.tasks import predict_task
 from api.tracing import configure_tracing
 from api.errors import (
@@ -32,7 +35,7 @@ from api.errors import (
 from api.metrics import cache_hits_total, cache_misses_total, predictions_total
 from api.middleware import CorrelationIdMiddleware
 from api.predictor import LABELS, load_all_versions
-from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictRequest, PredictResponse
+from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictRequest, PredictResponse, PredictionLog
 from config import settings
 from logging_config import configure_logging
 
@@ -70,10 +73,17 @@ async def lifespan(app: FastAPI):
             redis = None
     app.state.redis = redis
 
+    db = None
+    if settings.database_url:
+        db = await init_db_pool(settings.database_url)
+    app.state.db = db
+
     yield
 
     if redis is not None:
         await redis.aclose()
+    if db is not None:
+        await close_db_pool(db)
     logger.info("Shutting down")
 
 
@@ -133,19 +143,51 @@ async def predict(
     """
     version, predictor = _resolve_version(request.app.state.predictors, x_model_version)
     redis: AsyncRedis | None = request.app.state.redis
+    db = request.app.state.db
+
+    t0 = time.perf_counter()
 
     if redis is not None:
         cached = await get_cached(redis, body.text, version)
         if cached is not None:
             cache_hits_total.inc()
+            latency_ms = (time.perf_counter() - t0) * 1000
+            if db is not None:
+                ctx = structlog.contextvars.get_contextvars()
+                asyncio.create_task(log_prediction(
+                    db,
+                    text=body.text,
+                    label=cached["label"],
+                    confidence=cached["confidence"],
+                    model_version=version,
+                    latency_ms=latency_ms,
+                    served_from_cache=True,
+                    correlation_id=ctx.get("correlation_id"),
+                    client_ip=request.client.host if request.client else None,
+                ))
             return PredictResponse(**cached)
 
     cache_misses_total.inc()
     result = predictor.predict(body.text)
+    latency_ms = (time.perf_counter() - t0) * 1000
     predictions_total.labels(label=result["label"]).inc()
 
     if redis is not None:
         await set_cached(redis, body.text, version, result, settings.cache_ttl)
+
+    if db is not None:
+        ctx = structlog.contextvars.get_contextvars()
+        asyncio.create_task(log_prediction(
+            db,
+            text=body.text,
+            label=result["label"],
+            confidence=result["confidence"],
+            model_version=version,
+            latency_ms=latency_ms,
+            served_from_cache=False,
+            correlation_id=ctx.get("correlation_id"),
+            client_ip=request.client.host if request.client else None,
+        ))
 
     return PredictResponse(label=result["label"], confidence=result["confidence"])
 
@@ -219,3 +261,22 @@ async def info(request: Request) -> ModelInfoResponse:
         max_input_length=settings.max_input_length,
         labels=LABELS,
     )
+
+
+@app.get("/predictions", response_model=list[PredictionLog])
+async def list_predictions(
+    request: Request,
+    _: None = Depends(verify_api_key),
+    limit: int = Query(default=50, ge=1, le=500, description="Maximum number of rows to return."),
+    version: str | None = Query(default=None, description="Filter by model version."),
+) -> list[PredictionLog]:
+    """Return recent prediction log entries from the audit database.
+
+    Results are ordered newest-first. Use the version query parameter to filter
+    by a specific model checkpoint.
+    """
+    db = request.app.state.db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable or not configured")
+    rows = await get_recent_predictions(db, limit=limit, version=version)
+    return [PredictionLog(**row) for row in rows]
