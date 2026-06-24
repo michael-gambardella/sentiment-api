@@ -93,6 +93,58 @@ class Predictor:
             except Exception as exc:
                 raise PredictionError(f"Inference failed: {exc}") from exc
 
+    def predict_batch(self, texts: list[str]) -> list[dict]:
+        """Run inference on multiple texts in a single batched forward pass.
+
+        Args:
+            texts: List of raw input strings.
+
+        Returns:
+            List of dicts with 'label' and 'confidence' keys, aligned with input order.
+
+        Raises:
+            PredictionError: If tokenisation or model inference fails unexpectedly.
+        """
+        with tracer.start_as_current_span("model.batch_inference") as span:
+            span.set_attribute("batch.size", len(texts))
+            try:
+                # padding=True pads each sequence to the longest in this batch
+                # rather than always padding to MAX_LENGTH, which saves compute
+                # when most texts are short.
+                inputs = self.tokenizer(
+                    texts,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=MAX_LENGTH,
+                )
+
+                input_ids = inputs["input_ids"].to(self.device)
+                attention_mask = inputs["attention_mask"].to(self.device)
+
+                with torch.no_grad():
+                    outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+
+                # probs shape: [N, num_labels]
+                probs = F.softmax(outputs.logits, dim=-1)
+                predicted_indices = probs.argmax(dim=-1).tolist()
+                # max probability per row == confidence of the predicted class
+                confidences = probs.max(dim=-1).values.tolist()
+
+                results = [
+                    {
+                        "label": LABELS[idx],
+                        "confidence": round(conf, 4),
+                    }
+                    for idx, conf in zip(predicted_indices, confidences)
+                ]
+                span.set_attribute("batch.labels", str([r["label"] for r in results]))
+                return results
+            except (ModelNotLoadedError, PredictionError):
+                raise
+            except Exception as exc:
+                raise PredictionError(f"Batch inference failed: {exc}") from exc
+
 
 def load_all_versions(versions_dir: Path) -> dict[str, Predictor]:
     """Scan versions_dir for subdirectories containing model checkpoints and load each.

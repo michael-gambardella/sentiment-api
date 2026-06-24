@@ -35,7 +35,7 @@ from api.errors import (
 from api.metrics import cache_hits_total, cache_misses_total, predictions_total
 from api.middleware import CorrelationIdMiddleware
 from api.predictor import LABELS, load_all_versions
-from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictRequest, PredictResponse, PredictionLog
+from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictBatchRequest, PredictBatchResponse, PredictRequest, PredictResponse, PredictionLog
 from config import settings
 from logging_config import configure_logging
 
@@ -190,6 +190,89 @@ async def predict(
         ))
 
     return PredictResponse(label=result["label"], confidence=result["confidence"])
+
+
+@app.post("/predict/batch", response_model=PredictBatchResponse)
+@limiter.limit(lambda: settings.rate_limit)
+async def predict_batch(
+    request: Request,
+    body: PredictBatchRequest,
+    _: None = Depends(verify_api_key),
+    x_model_version: str | None = Header(default=None),
+) -> PredictBatchResponse:
+    """Classify the sentiment of multiple texts in a single batched forward pass.
+
+    Only cache-miss texts incur model inference; hits are served from Redis.
+    Cache checks and cache writes for all texts run concurrently.
+    Results are returned in the same order as the input texts list.
+    """
+    version, predictor = _resolve_version(request.app.state.predictors, x_model_version)
+    redis: AsyncRedis | None = request.app.state.redis
+    db = request.app.state.db
+    client_ip = request.client.host if request.client else None
+    ctx = structlog.contextvars.get_contextvars()
+    correlation_id = ctx.get("correlation_id")
+
+    # Phase 1: concurrent cache lookups for every text
+    if redis is not None:
+        cache_checks: list[dict | None] = list(
+            await asyncio.gather(*[get_cached(redis, t, version) for t in body.texts])
+        )
+    else:
+        cache_checks = [None] * len(body.texts)
+
+    uncached_indices = [i for i, r in enumerate(cache_checks) if r is None]
+    uncached_texts = [body.texts[i] for i in uncached_indices]
+    cached_count = len(body.texts) - len(uncached_indices)
+
+    # Phase 2: single batched forward pass for all cache misses
+    results: list[dict | None] = list(cache_checks)
+    inference_ms = 0.0
+
+    if uncached_texts:
+        t_infer = time.perf_counter()
+        batch_results = predictor.predict_batch(uncached_texts)
+        inference_ms = (time.perf_counter() - t_infer) * 1000
+
+        for idx, result in zip(uncached_indices, batch_results):
+            results[idx] = result
+            predictions_total.labels(label=result["label"]).inc()
+
+        # Write all misses to cache concurrently
+        if redis is not None:
+            await asyncio.gather(*[
+                set_cached(redis, uncached_texts[i], version, batch_results[i], settings.cache_ttl)
+                for i in range(len(uncached_texts))
+            ])
+
+    if cached_count > 0:
+        cache_hits_total.inc(cached_count)
+    if uncached_texts:
+        cache_misses_total.inc(len(uncached_texts))
+
+    # Phase 3: fire-and-forget audit log — one row per text
+    if db is not None:
+        per_miss_latency = inference_ms / len(uncached_texts) if uncached_texts else 0.0
+        for i, (text, result) in enumerate(zip(body.texts, results)):
+            from_cache = cache_checks[i] is not None
+            asyncio.create_task(log_prediction(
+                db,
+                text=text,
+                label=result["label"],
+                confidence=result["confidence"],
+                model_version=version,
+                latency_ms=0.0 if from_cache else per_miss_latency,
+                served_from_cache=from_cache,
+                correlation_id=correlation_id,
+                client_ip=client_ip,
+            ))
+
+    return PredictBatchResponse(
+        results=[PredictResponse(**r) for r in results],
+        model_version=version,
+        count=len(body.texts),
+        cached_count=cached_count,
+    )
 
 
 @app.post("/predict/async", response_model=JobResponse, status_code=202)

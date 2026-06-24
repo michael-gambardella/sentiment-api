@@ -1,7 +1,10 @@
 """Pydantic v2 request and response schemas for the sentiment classification API."""
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
+
+_TextItem = Annotated[str, Field(min_length=1, max_length=5000)]
 
 
 class PredictRequest(BaseModel):
@@ -40,6 +43,27 @@ class ModelInfoResponse(BaseModel):
     default_version: str = Field(description="Version used when X-Model-Version header is absent.")
     max_input_length: int = Field(description="Maximum token length accepted by the model.")
     labels: list[str] = Field(description="Possible output labels in index order.")
+
+
+class PredictBatchRequest(BaseModel):
+    texts: list[_TextItem] = Field(
+        min_length=1,
+        max_length=64,
+        description="1–64 texts to classify. Results are returned in the same order.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"texts": ["Great movie!", "Terrible experience."]}]
+        }
+    }
+
+
+class PredictBatchResponse(BaseModel):
+    results: list[PredictResponse] = Field(description="Predictions aligned with the input texts list.")
+    model_version: str = Field(description="Model version that produced the results.")
+    count: int = Field(description="Total number of texts classified.")
+    cached_count: int = Field(description="Number of results served from the Redis cache.")
 
 
 class JobResponse(BaseModel):
