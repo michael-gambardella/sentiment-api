@@ -17,6 +17,7 @@ from api.auth import verify_api_key
 from api.cache import get_cached, set_cached
 from api.celery_app import celery_app
 from api.db import close_db_pool, get_recent_predictions, init_db_pool, log_prediction
+from api.explain import build_explainer, compute_attributions
 from api.tasks import predict_task
 from api.tracing import configure_tracing
 from api.errors import (
@@ -35,7 +36,19 @@ from api.errors import (
 from api.metrics import cache_hits_total, cache_misses_total, predictions_total
 from api.middleware import CorrelationIdMiddleware
 from api.predictor import LABELS, load_all_versions
-from api.schemas import HealthResponse, JobResponse, JobStatusResponse, ModelInfoResponse, PredictBatchRequest, PredictBatchResponse, PredictRequest, PredictResponse, PredictionLog
+from api.schemas import (
+    ExplainResponse,
+    HealthResponse,
+    JobResponse,
+    JobStatusResponse,
+    ModelInfoResponse,
+    PredictBatchRequest,
+    PredictBatchResponse,
+    PredictRequest,
+    PredictResponse,
+    PredictionLog,
+    TokenAttribution,
+)
 from config import settings
 from logging_config import configure_logging
 
@@ -61,6 +74,10 @@ async def lifespan(app: FastAPI):
                 available=sorted(predictors),
             )
     app.state.predictors = predictors
+
+    explainers = {v: build_explainer(p) for v, p in predictors.items()}
+    logger.info("SHAP explainers ready", versions=sorted(explainers))
+    app.state.explainers = explainers
 
     redis: AsyncRedis | None = None
     if settings.cache_ttl > 0:
@@ -272,6 +289,64 @@ async def predict_batch(
         model_version=version,
         count=len(body.texts),
         cached_count=cached_count,
+    )
+
+
+@app.post("/predict/explain", response_model=ExplainResponse)
+@limiter.limit(lambda: settings.rate_limit)
+async def predict_explain(
+    request: Request,
+    body: PredictRequest,
+    _: None = Depends(verify_api_key),
+    x_model_version: str | None = Header(default=None),
+) -> ExplainResponse:
+    """Classify text and return SHAP token-level attribution scores.
+
+    Attributions are computed at word-level granularity using SHAP's Partition
+    explainer. Positive scores push toward the predicted label; negative scores
+    push away. The additive property holds: sum(scores) + base_value ≈ confidence.
+
+    This endpoint is significantly slower than /predict (typically 1–10 s depending
+    on text length) because SHAP requires many model calls to estimate attributions.
+    Suitable for debugging, model auditing, and interactive tooling — not for
+    latency-sensitive production traffic.
+    """
+    version, predictor = _resolve_version(request.app.state.predictors, x_model_version)
+    explainer = request.app.state.explainers.get(version)
+    if explainer is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"SHAP explainer not available for version '{version}'",
+        )
+
+    result = predictor.predict(body.text)
+
+    loop = asyncio.get_running_loop()
+    attributions, base_value = await loop.run_in_executor(
+        None, compute_attributions, explainer, body.text, result["label"]
+    )
+
+    db = request.app.state.db
+    if db is not None:
+        ctx = structlog.contextvars.get_contextvars()
+        asyncio.create_task(log_prediction(
+            db,
+            text=body.text,
+            label=result["label"],
+            confidence=result["confidence"],
+            model_version=version,
+            latency_ms=0.0,
+            served_from_cache=False,
+            correlation_id=ctx.get("correlation_id"),
+            client_ip=request.client.host if request.client else None,
+        ))
+
+    return ExplainResponse(
+        label=result["label"],
+        confidence=result["confidence"],
+        attributions=[TokenAttribution(**a) for a in attributions],
+        base_value=base_value,
+        model_version=version,
     )
 
 

@@ -78,6 +78,45 @@ class JobStatusResponse(BaseModel):
     error: str | None = Field(default=None, description="Error detail if the job failed.")
 
 
+class TokenAttribution(BaseModel):
+    token: str = Field(description="Surface-form word or punctuation from the input text.")
+    score: float = Field(
+        description="SHAP value for the predicted label. "
+        "Positive → pushes toward the predicted label; negative → pushes away."
+    )
+
+
+class ExplainResponse(BaseModel):
+    label: str = Field(description="Predicted sentiment label.")
+    confidence: float = Field(description="Model confidence for the predicted label.")
+    attributions: list[TokenAttribution] = Field(
+        description="Per-token SHAP values in input order. "
+        "sum(scores) + base_value ≈ confidence."
+    )
+    base_value: float = Field(
+        description="Model's expected P(label) when all tokens are masked — the SHAP baseline."
+    )
+    model_version: str = Field(description="Model version that produced the explanation.")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "label": "POSITIVE",
+                    "confidence": 0.9968,
+                    "attributions": [
+                        {"token": "Great", "score": 0.4231},
+                        {"token": "film", "score": 0.3105},
+                        {"token": "!", "score": 0.0198},
+                    ],
+                    "base_value": 0.2434,
+                    "model_version": "final",
+                }
+            ]
+        }
+    }
+
+
 class PredictionLog(BaseModel):
     id: int = Field(description="Auto-incrementing row identifier.")
     created_at: datetime = Field(description="UTC timestamp when the prediction was made.")

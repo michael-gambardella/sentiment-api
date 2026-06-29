@@ -20,3 +20,4 @@ opentelemetry-exporter-otlp-proto-grpc>=1.24.0
 celery[redis]>=5.3.0
 redis[asyncio]>=4.2.0
 asyncpg>=0.29.0
+shap>=0.46.0
